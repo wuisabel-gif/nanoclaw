@@ -5,6 +5,7 @@ import path from 'path';
 import { query as sdkQuery, type HookCallback, type PreCompactHookInput } from '@anthropic-ai/claude-agent-sdk';
 
 import { clearContainerToolInFlight, setContainerToolInFlight } from '../db/connection.js';
+import { failedMcpServers, type McpServerStatus } from './mcp-status.js';
 import { registerProvider } from './provider-registry.js';
 import type { AgentProvider, AgentQuery, McpServerConfig, ProviderEvent, ProviderOptions, QueryInput } from './types.js';
 
@@ -439,6 +440,14 @@ export class ClaudeProvider implements AgentProvider {
 
         if (message.type === 'system' && message.subtype === 'init') {
           yield { type: 'init', continuation: message.session_id };
+
+          // Log any MCP server that failed to connect; otherwise the loss is silent and the agent may run tool-blind and fabricate success.
+          const failed = failedMcpServers((message as { mcp_servers?: McpServerStatus[] }).mcp_servers);
+          for (const s of failed) {
+            log(
+              `MCP server "${s.name}" is not connected (status: ${s.status}); its tools are unavailable this session. Check the server command/args and container deps.`,
+            );
+          }
         } else if (message.type === 'result') {
           // `result` text exists only on subtype:"success"; error subtypes
           // (e.g. a non-retryable 403 billing_error) carry their message in
